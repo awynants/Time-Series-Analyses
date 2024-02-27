@@ -1,0 +1,238 @@
+#load data
+```{r}
+mydata <- read.table(file=file.choose(),header=TRUE, dec=".")
+attach(mydata)
+regts <- ts(Unemp, frequency = 12, start = c(2000, 1))
+dregts <- diff(regts)
+```
+
+#libraries
+```{r}
+library(CADFtest)
+library(fGarch)
+library(forecast)
+library(vars)
+```
+
+#plot data
+```{r}
+plot.ts(regts)
+plot.ts(dregts)
+```
+
+#correlograms
+```{r}
+acf(dregts)
+acf(regts)
+pacf(dregts)
+summary(regts)
+```
+
+#Tests for stationarity and white noise
+```{r}
+max.lag<-round(sqrt(length(regts)))
+CADFtest(dregts, type= "drift", criterion= "BIC", max.lag.y=max.lag)
+Box.test(dregts, lag = max.lag, type = "Ljung-Box")
+```
+
+#Intrayear pattern
+```{r}
+one.year <- rep(1:12, 21) 
+oneyear <- append(one.year, c(1, 2, 3, 4, 5, 6, 7, 8, 9))
+D <- 12; sp <- 2*pi*oneyear/D
+intrayear.model <- lm(regts ~ sin(sp)+cos(sp)+sin(2*sp)+cos(2*sp))
+summary(intrayear.model)
+```
+
+#Estimate ARIMA(0,1,9)
+```{r}
+arima1 <- arima(regts, order = c(0,1,9))
+arima1
+Box.test(arima1$res, lag = max.lag, type = "Ljung-Box")
+fcstarima1 <- predict(arima1, n.ahead = 12)
+expected <- fcstarima1$pred
+lower <- fcstarima1$pred-qnorm(0.975)*fcstarima1$se
+upper <- fcstarima1$pred+qnorm(0.975)*fcstarima1$se
+plot.ts(regts,xlim=c(2020,2022.6),ylim=c(7,10))
+lines(expected,col="red")
+lines(lower,col="blue")
+lines(upper,col="blue")
+```
+
+#Estimate AR(8)
+```{r}
+arima2 <- arima(regts, order = c(8,1,0))
+arima2
+Box.test(arima2$res, lag = max.lag, type = "Ljung-Box")
+fcstarima2 <- predict(arima2, n.ahead = 12)
+expected2 <- fcstarima2$pred
+lower2 <- fcstarima2$pred-qnorm(0.975)*fcstarima2$se
+upper2 <- fcstarima2$pred+qnorm(0.975)*fcstarima2$se
+plot.ts(regts,xlim=c(2020,2022.6),ylim=c(7,10))
+lines(expected2,col="red")
+lines(lower2,col="blue")
+lines(upper2,col="blue")
+```
+
+#Estimate ARIMA(1,1,1)
+```{r}
+arima3 <- arima(regts, order = c(1,1,1))
+arima3
+Box.test(arima3$res, lag = max.lag, type = "Ljung-Box")
+fcstarima3 <- predict(arima3, n.ahead = 12)
+expected3 <- fcstarima3$pred
+lower3 <- fcstarima3$pred-qnorm(0.975)*fcstarima3$se
+upper3 <- fcstarima3$pred+qnorm(0.975)*fcstarima3$se
+plot.ts(regts,xlim=c(2020,2022.6),ylim=c(7,10))
+lines(expected3,col="red")
+lines(lower3,col="blue")
+lines(upper3,col="blue")
+```
+
+#GARCH effects
+```{r}
+mymodel<-garchFit(~arma(1,1) + garch(1,1), cond.dist="QMLE", include.mean=T,data=dregts);
+summary(mymodel)
+plot(mymodel)
+```
+
+#Compare forecast errors
+```{r}
+y<-regts
+S=round(0.90*length(y))
+h=1
+error1.h<-c()
+for (i in S:(length(y)-h))
+{
+mymodel.sub<-arima(y[1:i], order = c(0,1,9),seasonal=c(0,0,0))
+predict.h<-predict(mymodel.sub,n.ahead=h)$pred[h]
+error1.h<-c(error1.h,y[i+h]-predict.h)
+}
+error2.h<-c()
+for (i in S:(length(y)-h))
+{
+mymodel.sub<-arima(y[1:i], order = c(8,1,0),seasonal=c(0,0,0))
+predict.h<-predict(mymodel.sub,n.ahead=h)$pred[h]
+error2.h<-c(error2.h,y[i+h]-predict.h)
+}
+error3.h<-c()
+for (i in S:(length(y)-h))
+{
+mymodel.sub<-arima(y[1:i], order = c(1,1,1),seasonal=c(0,0,0))
+predict.h<-predict(mymodel.sub,n.ahead=h)$pred[h]
+error3.h<-c(error3.h,y[i+h]-predict.h)
+}
+dm.test(error1.h,error3.h,h=h,power=1)
+MAE1 <- mean(abs(error1.h))
+MAE2 <- mean(abs(error2.h))
+MAE3 <- mean(abs(error3.h))
+MAE1; MAE2; MAE3
+AIC(arima1, k = log(260))
+AIC(arima2, k = log(260))
+AIC(arima3, k = log(260))
+```
+
+#Multivariate
+
+#second series
+```{r}
+mydata2 <- read.table(file=file.choose(),header=TRUE, dec=".")
+attach(mydata2)
+pricets <- ts(Price, frequency = 12, start = c(2000, 1))
+logpricets <- log(pricets)
+dregtsds <- dregts[13:260] #to match the length of the unemployment series to the seasonally differenced share price
+```
+
+#plot series in logs and differences
+```{r}
+dlogpricets <- diff(diff(logpricets), lag = 12)
+plot(pricets)
+plot(logpricets)
+plot(dlogpricets)
+summary(dlogpricets)
+monthplot(dlogpricets)
+```
+```{r}
+CADFtest(dlogpricets, type= "drift", criterion= "BIC", max.lag.y=max.lag)
+Box.test(dlogpricets, lag = max.lag, type = "Ljung-Box")
+```
+
+#cointegration
+```{r}
+fit_ci <- lm(regts ~ pricets)
+res_fit_ci <- fit_ci$residuals
+CADFtest(res_fit_ci,type="drift",criterion="BIC",max.lag.y=max.lag)
+```
+
+#Granger causality
+```{r}
+lag <- 5
+n <- length(dregtsds)
+dreg.0 <- dregtsds[(lag+1):n]
+dlogprice.0 <- dlogpricets[(lag+1):n]
+dreg.1 <- dregtsds[lag:(n-1)]
+dlogprice.1 <- dlogpricets[lag:(n-1)]
+dreg.2 <- dregtsds[(lag-1):(n-2)]
+dlogprice.2 <- dlogpricets[(lag-1):(n-2)]
+dreg.3 <- dregtsds[(lag-2):(n-3)]
+dlogprice.3 <- dlogpricets[(lag-2):(n-3)]
+dreg.4 <- dregts[(lag-3):(n-4)]
+dlogprice.4 <- dlogpricets[(lag-3):(n-4)]
+dreg.5 <- dregtsds[(lag-4):(n-5)]
+dlogprice.5 <- dlogpricets[(lag-4):(n-5)]
+fit_adlm <- lm(dreg.0 ~ dreg.1+dreg.2+dreg.3+dreg.4+dreg.5+dlogprice.1+dlogprice.2+dlogprice.3+dlogprice.4+dlogprice.5)
+redfit_adlm <- lm(dreg.0 ~ dreg.1+dreg.2+dreg.3+dreg.4+dreg.5)
+summary(fit_adlm)
+acf(fit_adlm$residuals)
+Box.test(fit_adlm$residuals, lag = max.lag, type = "Ljung-Box")
+anova(redfit_adlm, fit_adlm)
+```
+
+#VAR model
+```{r}
+multivardata <- cbind(dlogpricets, dregtsds)
+VARselect(multivardata, lag.max = max.lag, type = "const")
+fit_var1<-VAR(multivardata,type="const",p=13)
+summary(fit_var1)
+var1_residuals<-resid(fit_var1)
+par(mfrow=c(2,2))
+acf(var1_residuals[,1])
+acf(var1_residuals[,2])
+ccf(var1_residuals[,1],var1_residuals[,2])
+par(mfrow=c(1,1))
+```
+
+#Impulse-response
+```{r}
+irf_var<-irf(fit_var1,ortho=FALSE,boot=TRUE)
+plot(irf_var)
+```
+
+#VAR prediction
+```{r}
+predictedvar <- predict(fit_var1, n.ahead = 12)
+predictedvar
+#This command gives me a table of VAR(13) predicted values for the unemployment series dregtsds in differences, 
+#all I have to do is add these differences to the last observation of the original unemployment series to reconstruct #the forecast for the original series (not in differences). The last value in the unemployment series is 8.542433546
+
+lastvalue <- rep(c(8.542433546), each = 12)
+dvarexpected <- c(-0.053179600, -0.049106141,-0.069818504,-0.111720507,-0.117661042,-0.018028313,-0.068626816,-0.025791763,-0.058328908,-0.035173548, 0.005467317,-0.011895976)
+dvarlower <- c(-0.2724323, -0.2745624, -0.2966684, -0.3386616, -0.3458626, -0.2489378, -0.3032144, -0.2627770, -0.2956331, -0.2769710, -0.2376244, -0.2579204)
+dvarupper <- c(0.1660731,0.1763501, 0.1570314,0.1152206,0.1105405,0.2128812,0.1659608,0.2111935,0.1789752, 0.2066239, 0.2485590, 0.2341284)
+
+#Now add these predictions in differences to the vector with the last value element-wise to reconstruct the predictions in levels
+varexpected <- lastvalue+dvarexpected
+varlower <- lastvalue+dvarlower
+varupper <- lastvalue+dvarupper
+
+#and convert the predictions to time series for the next 12 month period
+varexpectedts <- ts(varexpected, frequency = 12, start = c(2021,10))
+varlowerts <- ts(varlower, frequency = 12, start = c(2021,10))
+varupperts <- ts(varupper, frequency = 12, start = c(2021,10))
+
+#Plot the prediction
+plot.ts(regts,xlim=c(2020,2022.6),ylim=c(7,10))
+lines(varexpectedts,col="red")
+lines(varlowerts,col="blue")
+lines(varupperts,col="blue")
+```
